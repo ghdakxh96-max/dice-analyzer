@@ -196,7 +196,7 @@ function render() {
   const rgDiv=document.getElementById('rangeResult');
   const biasDiv=document.getElementById('biasResult');
   const sumDiv=document.getElementById('summary');
-  hlDiv.innerHTML = `<h3>가장 긴 일치 H/L 패턴</h3>` + (hl.best ? `<div class="muted">패턴: <b>${hl.best.pattern.split('').join(' ')}</b></div>${resultBlock(hl.best.h,hl.best.l)}` : '<div class="muted">일치 데이터 없음</div>') + `<h3>길이별 결과</h3>${tableRows(hl.rows,'hl')}`;
+  hlDiv.innerHTML = `<h3>H/L 패턴 분석</h3>` + (hl.best ? `<div class="muted">패턴: <b>${hl.best.pattern.split('').join(' ')}</b></div>${resultBlock(hl.best.h,hl.best.l)}` : '<div class="muted">일치 데이터 없음</div>');
   rgDiv.innerHTML = rg.best
     ? `<h3>최근 3개 구간패턴</h3><div class="muted">패턴: <b>${rg.best.pattern.map(rangeLabel).join(' → ')}</b></div>${resultBlock(rg.best.h,rg.best.l)}`
     : `<div class="muted">구간패턴은 최근 3개 숫자가 필요해. 현재 입력 ${nums.length}개.</div>`;
