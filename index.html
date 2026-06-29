@@ -43,7 +43,7 @@
 <body>
 <div class="wrap">
   <h1>DICE H/L 분석기</h1>
-  <div class="sub">데이터 내장: <b id="dataCount">100,907</b>개 · 기준: <b>50 이상 H / 50 미만 L</b><br>정확패턴 제외 · <b>H/L 패턴 + 구간패턴 + N회 편향</b></div>
+  <div class="sub">데이터 내장: <b id="dataCount">100,907</b>개 · 기준: <b>50 이상 H / 50 미만 L</b><br>정확패턴 제외 · <b>H/L 패턴(1~10) + 구간패턴(최근 3개만) + N회 편향(과거 동일 편향 비교)</b></div>
 
   <div class="card">
     <label for="nums">최근 숫자 입력</label>
@@ -64,7 +64,7 @@
     <div id="summary">숫자를 입력하고 분석하기를 눌러.</div>
   </div>
   <div class="card"><h2>1. H/L 패턴 분석</h2><div id="hlResult">숫자를 입력하고 분석하기를 눌러.</div></div>
-  <div class="card"><h2>2. 구간패턴 분석</h2><div id="rangeResult">숫자를 입력하고 분석하기를 눌러.</div></div>
+  <div class="card"><h2>2. 구간패턴 분석 <span class="tag">최근 3개만</span></h2><div id="rangeResult">숫자를 입력하고 분석하기를 눌러.</div></div>
   <div class="card"><h2>3. N회 편향 분석</h2><div id="biasResult">숫자를 입력하고 분석하기를 눌러.</div></div>
   <div class="footer">주의: 이 도구는 과거 데이터의 빈도 분석용이야. 결과가 다음 결과를 보장하지는 않아.</div>
 </div>
@@ -138,21 +138,36 @@ function analyzeHL(nums) {
   return {rows,best};
 }
 function analyzeRange(nums) {
-  const rows=[];
-  const max=Math.min(MAX_LEN, nums.length);
-  for (let len=1; len<=max; len++) {
-    const arr=patternRange(nums,len); const key=arr.join('|'); const c=rangeIndex[len].get(key) || [0,0];
-    rows.push({len, pattern:arr, h:c[0], l:c[1]});
-  }
-  const best = rows.filter(r=>r.h+r.l>0).sort((a,b)=>a.len-b.len).at(-1) || null;
-  return {rows,best};
+  const len = 3;
+  if (nums.length < len) return {rows:[], best:null, need:len};
+  const arr = patternRange(nums, len);
+  const key = arr.join('|');
+  const c = rangeIndex[len].get(key) || [0,0];
+  const row = {len, pattern:arr, h:c[0], l:c[1]};
+  return {rows:[row], best:(c[0]+c[1] > 0 ? row : null), need:len};
 }
-function analyzeBias(n) {
-  n = Math.max(1, Math.min(n || 20, DICE_DATA.length));
-  const recent = hlData.slice(-n);
-  const h = recent.filter(x=>x==='H').length;
-  const l = n-h;
-  return {n,h,l};
+function analyzeBias(nums, n) {
+  n = Math.max(1, Math.min(n || 20, DICE_DATA.length - 1));
+  if (nums.length < n) return {n, h:0, l:0, sampleH:0, sampleL:0, total:0, need:n};
+  const recent = nums.slice(-n).map(v => v >= 50 ? 'H' : 'L');
+  const targetH = recent.filter(x=>x==='H').length;
+  const targetL = n - targetH;
+
+  let winH = 0;
+  for (let i=0; i<n; i++) if (hlData[i] === 'H') winH++;
+
+  let nextH = 0, nextL = 0, total = 0;
+  for (let start=0; start + n < hlData.length; start++) {
+    if (start > 0) {
+      if (hlData[start-1] === 'H') winH--;
+      if (hlData[start+n-1] === 'H') winH++;
+    }
+    if (winH === targetH) {
+      total++;
+      if (hlData[start+n] === 'H') nextH++; else nextL++;
+    }
+  }
+  return {n, h:nextH, l:nextL, sampleH:targetH, sampleL:targetL, total};
 }
 function weightedSummary(hlBest, rangeBest, bias) {
   const parts=[];
@@ -176,14 +191,27 @@ function render() {
   localStorage.setItem('dice_recent_nums', numsEl.value);
   if(!nums.length) { statusEl.textContent='숫자를 입력해줘.'; return; }
   const n=parseInt(nEl.value,10)||20;
-  const hl=analyzeHL(nums), rg=analyzeRange(nums), bias=analyzeBias(n);
+  const hl=analyzeHL(nums), rg=analyzeRange(nums), bias=analyzeBias(nums,n);
   const hlDiv=document.getElementById('hlResult');
   const rgDiv=document.getElementById('rangeResult');
   const biasDiv=document.getElementById('biasResult');
   const sumDiv=document.getElementById('summary');
   hlDiv.innerHTML = `<h3>가장 긴 일치 H/L 패턴</h3>` + (hl.best ? `<div class="muted">패턴: <b>${hl.best.pattern.split('').join(' ')}</b></div>${resultBlock(hl.best.h,hl.best.l)}` : '<div class="muted">일치 데이터 없음</div>') + `<h3>길이별 결과</h3>${tableRows(hl.rows,'hl')}`;
-  rgDiv.innerHTML = `<h3>가장 긴 일치 구간패턴</h3>` + (rg.best ? `<div class="muted">패턴: <b>${rg.best.pattern.map(rangeLabel).join(' → ')}</b></div>${resultBlock(rg.best.h,rg.best.l)}` : '<div class="muted">일치 데이터 없음</div>') + `<h3>길이별 결과</h3>${tableRows(rg.rows,'range')}`;
-  biasDiv.innerHTML = `<div class="muted">내장 데이터의 마지막 ${bias.n.toLocaleString()}회 기준</div>${resultBlock(bias.h,bias.l)}`;
+  rgDiv.innerHTML = rg.best
+    ? `<h3>최근 3개 구간패턴</h3><div class="muted">패턴: <b>${rg.best.pattern.map(rangeLabel).join(' → ')}</b></div>${resultBlock(rg.best.h,rg.best.l)}`
+    : `<div class="muted">구간패턴은 최근 3개 숫자가 필요해. 현재 입력 ${nums.length}개.</div>`;
+  biasDiv.innerHTML = bias.need
+    ? `<div class="muted">N회 편향은 최근 ${bias.n.toLocaleString()}개 입력이 필요해. 현재 입력 ${nums.length}개.</div>`
+    : `<h3>최근 ${bias.n.toLocaleString()}회 편향패턴</h3>
+       <div class="pill" style="margin-bottom:10px">
+         <div class="muted">현재 입력값 기준</div>
+         <div class="big">H ${bias.sampleH.toLocaleString()}회 / L ${bias.sampleL.toLocaleString()}회</div>
+       </div>
+       <div class="pill" style="margin-bottom:10px">
+         <div class="muted">과거 동일 편향</div>
+         <div class="big">${(bias.h+bias.l).toLocaleString()}회</div>
+       </div>
+       ${resultBlock(bias.h,bias.l)}`;
   const sum=weightedSummary(hl.best,rg.best,bias);
   if(!sum) sumDiv.innerHTML='<div class="muted">종합할 데이터가 부족해.</div>';
   else {
@@ -193,7 +221,7 @@ function render() {
 }
 document.getElementById('analyzeBtn').addEventListener('click', render);
 document.getElementById('clearBtn').addEventListener('click', () => { numsEl.value=''; localStorage.removeItem('dice_recent_nums'); statusEl.textContent='초기화 완료'; });
-document.getElementById('sampleBtn').addEventListener('click', () => { numsEl.value='18 29 30 44 66 72 13 91 40 55'; render(); });
+document.getElementById('sampleBtn').addEventListener('click', () => { numsEl.value='18 29 30 44 66 72 13 91 40 55 27 83 12 95 41 60 38 77 22 86'; render(); });
 numsEl.addEventListener('input', () => { statusEl.textContent='입력됨 · 분석하기를 눌러.'; });
 statusEl.textContent = `준비 완료 · 데이터 ${DICE_DATA.length.toLocaleString()}개 로딩됨`;
 </script>
